@@ -11,6 +11,7 @@ public partial class RoulettePanel : PanelContainer
     private readonly Dictionary<int, PanelContainer> _zonePanels = new();
     private readonly Dictionary<int, Label> _zoneLabels = new();
     private readonly Dictionary<int, VBoxContainer> _zoneItems = new();
+    private readonly Dictionary<int, List<Label>> _itemLabelsByZone = new();
     private Label _chargeHint = null!;
 
     public override void _Ready()
@@ -23,6 +24,7 @@ public partial class RoulettePanel : PanelContainer
             _zonePanels[i] = root;
             _zoneLabels[i] = root.GetNode<Label>("VBox/Title");
             _zoneItems[i] = root.GetNode<VBoxContainer>("VBox/Items");
+            _itemLabelsByZone[i] = new List<Label>();
         }
     }
 
@@ -46,10 +48,12 @@ public partial class RoulettePanel : PanelContainer
                 child.QueueFree();
             }
 
+            _itemLabelsByZone[zone].Clear();
             foreach (var item in player.RouletteZones[zone])
             {
                 var label = new Label { Text = $"• {item.Name}", TooltipText = BuildItemTooltip(item) };
                 _zoneItems[zone].AddChild(label);
+                _itemLabelsByZone[zone].Add(label);
             }
         }
     }
@@ -67,6 +71,26 @@ public partial class RoulettePanel : PanelContainer
             if (!_zonePanels.TryGetValue(z, out var panel)) continue;
             tween.TweenProperty(panel, "modulate", new Color("fff3bf"), 0.08f);
             tween.TweenProperty(panel, "modulate", Colors.White, 0.08f);
+        }
+    }
+
+    public void HighlightItems(Godot.Collections.Dictionary itemsByZone)
+    {
+        foreach (var zoneKey in itemsByZone.Keys)
+        {
+            var zone = (int)zoneKey;
+            if (!_itemLabelsByZone.TryGetValue(zone, out var labels)) continue;
+            var arr = (Godot.Collections.Array)itemsByZone[zone];
+            var targetNames = arr.Select(name => name.ToString()).ToHashSet();
+            foreach (var label in labels)
+            {
+                var pure = label.Text.Replace("• ", "");
+                if (!targetNames.Contains(pure)) continue;
+
+                var tween = CreateTween();
+                tween.TweenProperty(label, "modulate", new Color("ffd8a8"), 0.1f);
+                tween.TweenProperty(label, "modulate", Colors.White, 0.2f);
+            }
         }
     }
 

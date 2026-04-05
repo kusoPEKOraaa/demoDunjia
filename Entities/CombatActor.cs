@@ -64,6 +64,7 @@ public abstract class CombatActor
     }
 
     public int GetStatus(StatusEffectType type) => Statuses.TryGetValue(type, out var value) ? value : 0;
+    public bool HasStatus(StatusEffectType type) => GetStatus(type) > 0;
 
     public void ClearStatus(StatusEffectType type)
     {
