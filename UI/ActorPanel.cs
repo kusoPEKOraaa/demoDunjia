@@ -47,7 +47,7 @@ public partial class ActorPanel : PanelContainer
         var intent = string.IsNullOrWhiteSpace(actor.PendingIntent) ? "普通行动" : actor.PendingIntent;
         _stats.Text = $"HP {actor.Hp}/{actor.MaxHp} | 蓄力 {(actor.IsCharging ? "是" : "否")} | 阶段 {actor.CurrentPhase}";
         _subInfo.Text = $"意图：{intent}";
-        RefreshBars(actor.Hp, actor.MaxHp, actor.Shield, 30);
+        RefreshBars(actor.Hp, actor.MaxHp, actor.Shield, actor.ShieldCap);
         RefreshStatuses(actor.Statuses, actor.IsCharging, actor.PendingIntent);
     }
 

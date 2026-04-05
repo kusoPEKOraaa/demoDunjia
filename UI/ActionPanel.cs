@@ -1,4 +1,3 @@
-using System;
 using DemoDunjia.Data;
 using Godot;
 
@@ -33,13 +32,17 @@ public partial class ActionPanel : PanelContainer
         _defend.Pressed += () => EmitSignal(SignalName.ActionSelected, CombatActionType.Defend);
     }
 
-    public void SetInteractable(bool canAct, bool canDefend)
+    public void SetInteractable(bool canAct, bool canDefend, bool stunned)
     {
         _attack.Disabled = !canAct;
         _charge.Disabled = !canAct;
         _defend.Disabled = !canAct || !canDefend;
 
-        if (!canAct)
+        if (stunned)
+        {
+            _hint.Text = "玩家眩晕中，本回合无法主动行动";
+        }
+        else if (!canAct)
         {
             _hint.Text = "当前无法行动";
         }
