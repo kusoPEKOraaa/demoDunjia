@@ -79,54 +79,67 @@ public partial class BattleController : Node
         }
 
         IsResolving = true;
-        SetPhase("结算中");
-        var oldMonsterHp = Monster.Hp;
-        var oldPlayerHp = Player.Hp;
-        var summary = _turnResolver.ResolveTurn(Turn, Player, Monster, action);
-        TotalDamageDealt += Math.Max(0, oldMonsterHp - Monster.Hp);
-        TotalDamageTaken += Math.Max(0, oldPlayerHp - Player.Hp);
-
-        if (summary.PrimaryAction.TriggeredZones.Count > 0)
+        try
         {
-            EmitSignal(SignalName.RouletteResolved, summary.PrimaryAction.TriggeredZones.ToArray());
-            EmitSignal(SignalName.RouletteItemsResolved, ToGodotItemMap(summary.PrimaryAction.TriggeredItemsByZone));
-        }
+            SetPhase("结算中");
+            var oldMonsterHp = Monster.Hp;
+            var oldPlayerHp = Player.Hp;
+            var summary = _turnResolver.ResolveTurn(Turn, Player, Monster, action);
+            TotalDamageDealt += Math.Max(0, oldMonsterHp - Monster.Hp);
+            TotalDamageTaken += Math.Max(0, oldPlayerHp - Player.Hp);
 
-        foreach (var extra in summary.ExtraActions)
-        {
-            SetPhase("追加行动中");
-            EmitSignal(SignalName.RouletteResolved, extra.TriggeredZones.ToArray());
-            EmitSignal(SignalName.RouletteItemsResolved, ToGodotItemMap(extra.TriggeredItemsByZone));
-        }
-
-        if (Monster.IsDead)
-        {
-            Log.Add($"怪物 {Monster.Name} 被击败。", CombatLogCategory.Result);
-            if (!TryLoadNextMonster())
+            if (summary.PrimaryAction.TriggeredZones.Count > 0)
             {
+                EmitSignal(SignalName.RouletteResolved, summary.PrimaryAction.TriggeredZones.ToArray());
+                EmitSignal(SignalName.RouletteItemsResolved, ToGodotItemMap(summary.PrimaryAction.TriggeredItemsByZone));
+            }
+
+            foreach (var extra in summary.ExtraActions)
+            {
+                SetPhase("追加行动中");
+                EmitSignal(SignalName.RouletteResolved, extra.TriggeredZones.ToArray());
+                EmitSignal(SignalName.RouletteItemsResolved, ToGodotItemMap(extra.TriggeredItemsByZone));
+            }
+
+            if (Monster.IsDead)
+            {
+                Log.Add($"怪物 {Monster.Name} 被击败。", CombatLogCategory.Result);
+                if (!TryLoadNextMonster())
+                {
+                    SetPhase("战斗结束");
+                    EmitSignal(SignalName.BattleEnded, true, "已完成 5 个首批怪物战斗切片。Demo 胜利。", TotalDamageDealt, TotalDamageTaken);
+                }
+            }
+
+            if (Player.IsDead)
+            {
+                Log.Add("玩家倒下，战斗失败。", CombatLogCategory.Result);
                 SetPhase("战斗结束");
-                EmitSignal(SignalName.BattleEnded, true, "已完成 5 个首批怪物战斗切片。Demo 胜利。", TotalDamageDealt, TotalDamageTaken);
+                EmitSignal(SignalName.BattleEnded, false, "战斗失败", TotalDamageDealt, TotalDamageTaken);
+            }
+
+            Turn += 1;
+            if (!Player.IsDead)
+            {
+                SetPhase("等待玩家行动");
+            }
+            EmitSignal(SignalName.StateChanged);
+
+            if (!Player.IsDead && !Monster.IsDead && Player.HasStatus(StatusEffectType.Stun))
+            {
+                CallDeferred(MethodName.ResolveStunnedTurn);
             }
         }
-
-        if (Player.IsDead)
+        catch (Exception ex)
         {
-            Log.Add("玩家倒下，战斗失败。", CombatLogCategory.Result);
-            SetPhase("战斗结束");
-            EmitSignal(SignalName.BattleEnded, false, "战斗失败", TotalDamageDealt, TotalDamageTaken);
-        }
-
-        Turn += 1;
-        IsResolving = false;
-        if (!Player.IsDead)
-        {
+            GD.PushError($"PlayerSelectAction failed: {ex}");
+            Log.Add($"结算异常：{ex.Message}", CombatLogCategory.Result);
             SetPhase("等待玩家行动");
+            EmitSignal(SignalName.StateChanged);
         }
-        EmitSignal(SignalName.StateChanged);
-
-        if (!Player.IsDead && !Monster.IsDead && Player.HasStatus(StatusEffectType.Stun))
+        finally
         {
-            CallDeferred(MethodName.ResolveStunnedTurn);
+            IsResolving = false;
         }
     }
 
