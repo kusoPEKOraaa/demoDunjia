@@ -34,7 +34,7 @@ public sealed class ActionResolver
         if (playerAction == CombatActionType.Defend)
         {
             player.GainShield(_config.BaseDefenseShieldGain);
-            _log.Add($"玩家选择防御，先获得护盾 +{_config.BaseDefenseShieldGain}（当前护盾 {player.Shield}）");
+            _log.Add($"玩家选择防御，先获得护盾 +{_config.BaseDefenseShieldGain}（当前护盾 {player.Shield}）", CombatLogCategory.Shield);
         }
 
         var result = new ActionResolutionResult();
@@ -45,7 +45,7 @@ public sealed class ActionResolver
         else if (playerAction == CombatActionType.Charge)
         {
             _charge.DoCharge(player, _config);
-            _log.Add($"玩家蓄力：当前充能 {player.Charge}，溢出层 {player.OverflowCharge}");
+            _log.Add($"玩家蓄力：当前充能 {player.Charge}，溢出层 {player.OverflowCharge}", CombatLogCategory.Action);
         }
 
         ResolveMonsterAction(player, monster, monsterSkill);
@@ -57,12 +57,14 @@ public sealed class ActionResolver
     {
         var roulette = _roulette.Spin(_config, player.Charge);
         var triggeredItems = new List<ItemData>();
+        var itemsPerZone = new Dictionary<int, List<string>>();
         foreach (var zone in roulette.TriggeredZones)
         {
             if (player.RouletteZones.TryGetValue(zone, out var items))
             {
                 triggeredItems.AddRange(items);
-                _log.Add($"轮盘区域 {zone} 触发，道具：{(items.Count == 0 ? "无" : string.Join("/", items.Select(i => i.Name)))}");
+                itemsPerZone[zone] = items.Select(i => i.Name).ToList();
+                _log.Add($"轮盘区域 {zone} 触发，道具：{(items.Count == 0 ? "无" : string.Join("/", items.Select(i => i.Name)))}", CombatLogCategory.Action);
             }
         }
 
@@ -71,7 +73,7 @@ public sealed class ActionResolver
         foreach (var item in triggeredItems.Where(i => i.Phase == ItemResolutionPhase.Additive && i.MeetsZoneCondition(roulette.TriggerCount)))
         {
             add += item.FlatDamage;
-            _log.Add($"道具加算 {item.Name}：+{item.FlatDamage}");
+            _log.Add($"道具加算 {item.Name}：+{item.FlatDamage}", CombatLogCategory.Action);
         }
 
         var damage = baseDamage + add;
@@ -79,14 +81,14 @@ public sealed class ActionResolver
         foreach (var item in triggeredItems.Where(i => i.Phase == ItemResolutionPhase.Multiplier && i.MeetsZoneCondition(roulette.TriggerCount)))
         {
             multiplier *= item.DamageMultiplier;
-            _log.Add($"道具倍率 {item.Name}：x{item.DamageMultiplier:0.##}");
+            _log.Add($"道具倍率 {item.Name}：x{item.DamageMultiplier:0.##}", CombatLogCategory.Action);
         }
 
         if (player.OverflowCharge > 0)
         {
             var overflowMultiplier = 1f + player.OverflowCharge * _config.OverflowDamageBonusPerLayer;
             multiplier *= overflowMultiplier;
-            _log.Add($"溢出蓄力倍率：x{overflowMultiplier:0.##}");
+            _log.Add($"溢出蓄力倍率：x{overflowMultiplier:0.##}", CombatLogCategory.Action);
         }
 
         damage = (int)MathF.Round(damage * multiplier);
@@ -95,7 +97,7 @@ public sealed class ActionResolver
         if (echo > 0)
         {
             damage *= (1 + echo);
-            _log.Add($"追加触发（回响）次数 {echo}，伤害变为 {damage}");
+            _log.Add($"追加触发（回响）次数 {echo}，伤害变为 {damage}", CombatLogCategory.Action);
         }
 
         foreach (var tech in player.EquippedTechniques)
@@ -103,7 +105,7 @@ public sealed class ActionResolver
             if (TechniqueMatched(player, tech))
             {
                 damage += tech.BonusDamage;
-                _log.Add($"格斗技触发 {tech.Name}：+{tech.BonusDamage}");
+                _log.Add($"格斗技触发 {tech.Name}：+{tech.BonusDamage}", CombatLogCategory.Technique);
                 break;
             }
         }
@@ -113,19 +115,19 @@ public sealed class ActionResolver
         if (monster.IsCharging)
         {
             damage = (int)MathF.Round(damage * _config.ChargeHitDamageMultiplier);
-            _log.Add("命中蓄力目标：伤害 x1.5");
+            _log.Add("命中蓄力目标：伤害 x1.5", CombatLogCategory.Interrupt);
         }
 
         var defend = _defense.Resolve(damage, monster, _config);
         var hpDamage = monster.ApplyDamage(defend.DamageAfterDefense);
         monster.DefendSuccessThisAction = defend.DefendSuccess;
-        _log.Add($"玩家攻击结算：基础{baseDamage} +加算{add}，最终伤害 {defend.DamageAfterDefense}，造成生命伤害 {hpDamage}");
+        _log.Add($"玩家攻击结算：基础{baseDamage} +加算{add}，最终伤害 {defend.DamageAfterDefense}，造成生命伤害 {hpDamage}", CombatLogCategory.Damage);
 
         var interrupt = roulette.TriggerCount * _config.DefaultInterruptPerZone;
         foreach (var item in triggeredItems.Where(i => i.Phase == ItemResolutionPhase.OnHit && i.ExtraInterrupt > 0))
         {
             interrupt += item.ExtraInterrupt;
-            _log.Add($"道具打断 {item.Name}：+{item.ExtraInterrupt}");
+            _log.Add($"道具打断 {item.Name}：+{item.ExtraInterrupt}", CombatLogCategory.Interrupt);
         }
 
         ApplyOnHitStatuses(triggeredItems, monster);
@@ -134,12 +136,12 @@ public sealed class ActionResolver
         var shieldRate = (1f / 3f) * (1f + player.OverflowCharge * _config.OverflowShieldBonusPerLayer);
         var gainedShield = (int)MathF.Round(defend.DamageAfterDefense * shieldRate);
         player.GainShield(gainedShield);
-        _log.Add($"攻击转盾：+{gainedShield}（当前护盾 {player.Shield}）");
+        _log.Add($"攻击转盾：+{gainedShield}（当前护盾 {player.Shield}）", CombatLogCategory.Shield);
 
         foreach (var item in triggeredItems.Where(i => i.Phase == ItemResolutionPhase.Finisher && i.ExtraShieldAfterAttack > 0))
         {
             player.GainShield(item.ExtraShieldAfterAttack);
-            _log.Add($"收尾护盾 {item.Name}：+{item.ExtraShieldAfterAttack}");
+            _log.Add($"收尾护盾 {item.Name}：+{item.ExtraShieldAfterAttack}", CombatLogCategory.Shield);
         }
 
         _charge.ClearAfterAttack(player);
@@ -152,7 +154,9 @@ public sealed class ActionResolver
 
         return new ActionResolutionResult
         {
-            ExtraTurnSources = extraSources
+            ExtraTurnSources = extraSources,
+            TriggeredZones = roulette.TriggeredZones,
+            TriggeredItemsByZone = itemsPerZone
         };
     }
 
@@ -163,7 +167,7 @@ public sealed class ActionResolver
             monster.IsCharging = true;
             monster.ChargedSkillId = skill.ChargedSkillId;
             monster.PendingIntent = skill.IntentText ?? "即将释放技能";
-            _log.Add($"怪物蓄力：{monster.PendingIntent}");
+            _log.Add($"怪物蓄力：{monster.PendingIntent}", CombatLogCategory.Action);
             return;
         }
 
@@ -171,7 +175,7 @@ public sealed class ActionResolver
         {
             monster.IsDefending = true;
             monster.GainShield(skill.ShieldGain);
-            _log.Add($"怪物防御：护盾 +{skill.ShieldGain}");
+            _log.Add($"怪物防御：护盾 +{skill.ShieldGain}", CombatLogCategory.Shield);
             return;
         }
 
@@ -194,7 +198,7 @@ public sealed class ActionResolver
             var defend = _defense.Resolve(raw, player, _config);
             var hp = player.ApplyDamage(defend.DamageAfterDefense);
             player.DefendSuccessThisAction = defend.DefendSuccess;
-            _log.Add($"怪物技能 {skill.Name} 第{i + 1}段：原始{raw}，结算{defend.DamageAfterDefense}，玩家掉血 {hp}");
+            _log.Add($"怪物技能 {skill.Name} 第{i + 1}段：原始{raw}，结算{defend.DamageAfterDefense}，玩家掉血 {hp}", CombatLogCategory.Damage);
 
             if (skill.PoisonOnHit > 0) player.AddStatus(StatusEffectType.Poison, skill.PoisonOnHit);
             if (skill.BleedOnHit > 0) player.AddStatus(StatusEffectType.Bleed, skill.BleedOnHit);
@@ -224,17 +228,17 @@ public sealed class ActionResolver
             if (item.BleedOnHit > 0)
             {
                 target.AddStatus(StatusEffectType.Bleed, item.BleedOnHit);
-                _log.Add($"命中附加：{item.Name} 施加流血 {item.BleedOnHit}");
+                _log.Add($"命中附加：{item.Name} 施加流血 {item.BleedOnHit}", CombatLogCategory.Status);
             }
             if (item.PoisonOnHit > 0)
             {
                 target.AddStatus(StatusEffectType.Poison, item.PoisonOnHit);
-                _log.Add($"命中附加：{item.Name} 施加中毒 {item.PoisonOnHit}");
+                _log.Add($"命中附加：{item.Name} 施加中毒 {item.PoisonOnHit}", CombatLogCategory.Status);
             }
             if (item.VulnerableOnHit > 0)
             {
                 target.AddStatus(StatusEffectType.Vulnerable, item.VulnerableOnHit);
-                _log.Add($"命中附加：{item.Name} 施加易伤 {item.VulnerableOnHit}");
+                _log.Add($"命中附加：{item.Name} 施加易伤 {item.VulnerableOnHit}", CombatLogCategory.Status);
             }
         }
     }
@@ -244,7 +248,7 @@ public sealed class ActionResolver
         if (!actor.IsCharging) return;
 
         actor.AddInterrupt(value);
-        _log.Add($"{actorSide} 韧性条 +{value} => {actor.InterruptMeter}/{actor.Tenacity}");
+        _log.Add($"{actorSide} 韧性条 +{value} => {actor.InterruptMeter}/{actor.Tenacity}", CombatLogCategory.Interrupt);
         if (actor.InterruptMeter < actor.Tenacity) return;
 
         actor.IsCharging = false;
@@ -255,11 +259,13 @@ public sealed class ActionResolver
             _charge.ClearAfterInterrupt(p);
         }
 
-        _log.Add($"{actorSide} 蓄力被打断，眩晕 1 回合，蓄力清空");
+        _log.Add($"{actorSide} 蓄力被打断，眩晕 1 回合，蓄力清空", CombatLogCategory.Interrupt);
     }
 }
 
 public sealed class ActionResolutionResult
 {
     public List<string> ExtraTurnSources { get; init; } = new();
+    public List<int> TriggeredZones { get; init; } = new();
+    public Dictionary<int, List<string>> TriggeredItemsByZone { get; init; } = new();
 }

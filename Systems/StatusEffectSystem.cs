@@ -30,7 +30,7 @@ public sealed class StatusEffectSystem
             actor.ApplyDamage(damage);
             actor.SetStatus(StatusEffectType.Bleed, bleed - 1);
             total += damage;
-            log.Add($"[{actorSide}] 流血结算 {damage}，剩余层数 {actor.GetStatus(StatusEffectType.Bleed)}");
+            log.Add($"[{actorSide}] 流血结算 {damage}，剩余层数 {actor.GetStatus(StatusEffectType.Bleed)}", CombatLogCategory.Status);
         }
 
         var poison = actor.GetStatus(StatusEffectType.Poison);
@@ -38,7 +38,7 @@ public sealed class StatusEffectSystem
         {
             actor.ApplyDamage(poison);
             total += poison;
-            log.Add($"[{actorSide}] 中毒结算 {poison}，层数保持 {poison}");
+            log.Add($"[{actorSide}] 中毒结算 {poison}，层数保持 {poison}", CombatLogCategory.Status);
         }
 
         return total;

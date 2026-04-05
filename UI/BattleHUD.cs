@@ -8,33 +8,33 @@ namespace DemoDunjia.UI;
 public partial class BattleHUD : Control
 {
     private BattleController _battle = null!;
-
-    private Label _playerLabel = null!;
-    private Label _monsterLabel = null!;
-    private Label _intentLabel = null!;
-    private RichTextLabel _logLabel = null!;
-    private Button _attackBtn = null!;
-    private Button _chargeBtn = null!;
-    private Button _defendBtn = null!;
-    private readonly StatusEffectSystem _status = new();
+    private ActorPanel _playerPanel = null!;
+    private ActorPanel _monsterPanel = null!;
+    private RoulettePanel _roulette = null!;
+    private ActionPanel _actions = null!;
+    private CombatLogPanel _logPanel = null!;
+    private IntentDisplay _intentPanel = null!;
+    private ResultPopup _result = null!;
 
     public override void _Ready()
     {
         _battle = GetNode<BattleController>("../BattleController");
+        _playerPanel = GetNode<ActorPanel>("Layout/Bottom/Left/PlayerPanel");
+        _monsterPanel = GetNode<ActorPanel>("Layout/Top/MonsterPanel");
+        _roulette = GetNode<RoulettePanel>("Layout/Bottom/Center/RoulettePanel");
+        _actions = GetNode<ActionPanel>("Layout/Bottom/Center/ActionPanel");
+        _logPanel = GetNode<CombatLogPanel>("Layout/Bottom/Right/LogPanel");
+        _intentPanel = GetNode<IntentDisplay>("Layout/Center/IntentPanel");
+        _result = GetNode<ResultPopup>("ResultPopup");
+
         _battle.StateChanged += Refresh;
+        _battle.PhaseChanged += OnPhaseChanged;
+        _battle.RouletteResolved += OnRouletteResolved;
+        _battle.BattleEnded += OnBattleEnded;
         _battle.Log.EntryAdded += OnLog;
 
-        _playerLabel = GetNode<Label>("VBox/PlayerInfo");
-        _monsterLabel = GetNode<Label>("VBox/MonsterInfo");
-        _intentLabel = GetNode<Label>("VBox/IntentInfo");
-        _logLabel = GetNode<RichTextLabel>("VBox/LogPanel");
-        _attackBtn = GetNode<Button>("VBox/Actions/Attack");
-        _chargeBtn = GetNode<Button>("VBox/Actions/Charge");
-        _defendBtn = GetNode<Button>("VBox/Actions/Defend");
-
-        _attackBtn.Pressed += () => _battle.PlayerSelectAction(CombatActionType.Attack);
-        _chargeBtn.Pressed += () => _battle.PlayerSelectAction(CombatActionType.Charge);
-        _defendBtn.Pressed += () => _battle.PlayerSelectAction(CombatActionType.Defend);
+        _actions.ActionSelected += OnActionSelected;
+        _result.RestartRequested += OnRestart;
 
         Refresh();
     }
@@ -44,17 +44,55 @@ public partial class BattleHUD : Control
         var p = _battle.Player;
         var m = _battle.Monster;
 
-        _playerLabel.Text = $"玩家 HP {p.Hp}/{p.MaxHp} | 护盾 {p.Shield}/{p.ShieldCap} | 充能 {p.Charge} | 溢出 {p.OverflowCharge}\n状态: {_status.BuildStatusText(p)}";
-        _monsterLabel.Text = $"怪物 {m.Name} HP {m.Hp}/{m.MaxHp} | 当前相位 {m.CurrentPhase}\n状态: {_status.BuildStatusText(m)} | 蓄力中: {(m.IsCharging ? "是" : "否")}";
-        _intentLabel.Text = $"怪物意图: {(string.IsNullOrEmpty(m.PendingIntent) ? "普通行动" : m.PendingIntent)}";
+        _playerPanel.BindPlayer(p, _battle.GetWeaponName(), _battle.GetShieldName());
+        _monsterPanel.BindMonster(m);
+        _roulette.Bind(p, _battle.Config);
 
-        _defendBtn.Disabled = !_battle.CanDefend() || p.IsDead || m.IsDead;
-        _attackBtn.Disabled = p.IsDead || m.IsDead;
-        _chargeBtn.Disabled = p.IsDead || m.IsDead;
+        var canAct = !p.IsDead && !m.IsDead;
+        _actions.SetInteractable(canAct, _battle.CanDefend());
+        _intentPanel.SetIntent(string.IsNullOrWhiteSpace(m.PendingIntent) ? "普通行动" : m.PendingIntent);
+        _intentPanel.SetPhase(_battle.PhaseText);
     }
 
-    private void OnLog(string line)
+    private void OnActionSelected(CombatActionType action)
     {
-        _logLabel.AppendText(line + "\n");
+        _battle.PlayerSelectAction(action);
+    }
+
+    private void OnPhaseChanged(string phase)
+    {
+        _intentPanel.SetPhase(phase);
+    }
+
+    private void OnRouletteResolved(int[] zones)
+    {
+        if (zones.Length == 0) return;
+        _roulette.HighlightZones(zones);
+    }
+
+    private void OnBattleEnded(bool victory, string message, int damageDealt, int damageTaken)
+    {
+        _result.ShowResult(victory, message, damageDealt, damageTaken);
+    }
+
+    private void OnRestart()
+    {
+        _result.HidePopup();
+        _logPanel.Clear();
+        _battle.InitializeBattle();
+    }
+
+    private void OnLog(CombatLogEntry entry)
+    {
+        _logPanel.Append(entry);
+        if (entry.Category == CombatLogCategory.ExtraTurn)
+        {
+            _actions.ShowExtraActionHint();
+            _intentPanel.FlashBanner("追加行动！");
+        }
+        else if (entry.Category == CombatLogCategory.Interrupt && entry.Message.Contains("打断"))
+        {
+            _intentPanel.FlashBanner("蓄力被打断！");
+        }
     }
 }
